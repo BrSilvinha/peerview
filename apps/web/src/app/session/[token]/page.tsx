@@ -11,6 +11,7 @@ export default function SessionPage() {
   const { token } = useParams<{ token: string }>()
   const [state, setState] = useState<PageState>('loading')
   const [errorMsg, setErrorMsg] = useState('')
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null)
 
   const socketRef = useRef<Socket | null>(null)
   const peerRef = useRef<RTCPeerConnection | null>(null)
@@ -94,6 +95,11 @@ export default function SessionPage() {
         }
       })
 
+      socket.on('cursor-move', ({ x, y }: { x: number; y: number }) => {
+        setCursorPos({ x, y })
+      })
+      socket.on('cursor-hide', () => setCursorPos(null))
+
       socket.on('session-ended', () => stopSharingInline())
       socket.on('host-disconnected', () => stopSharingInline())
       stream.getVideoTracks()[0].addEventListener('ended', () => stopSharingInline())
@@ -120,7 +126,29 @@ export default function SessionPage() {
   }
 
   if (state === 'sharing') {
-    return <div style={{ position: 'fixed', inset: 0, backgroundColor: 'var(--bg)' }} />
+    return (
+      <div style={{ position: 'fixed', inset: 0, backgroundColor: 'var(--bg)', pointerEvents: 'none' }}>
+        {cursorPos && (
+          <div
+            style={{
+              position: 'fixed',
+              left: `${cursorPos.x * 100}vw`,
+              top: `${cursorPos.y * 100}vh`,
+              width: 22,
+              height: 22,
+              borderRadius: '50%',
+              backgroundColor: '#F97316',
+              border: '2px solid rgba(255,255,255,0.9)',
+              boxShadow: '0 0 0 3px rgba(249,115,22,0.35), 0 2px 8px rgba(0,0,0,0.5)',
+              transform: 'translate(-50%, -50%)',
+              pointerEvents: 'none',
+              zIndex: 9999,
+              transition: 'left 40ms linear, top 40ms linear',
+            }}
+          />
+        )}
+      </div>
+    )
   }
 
   return (

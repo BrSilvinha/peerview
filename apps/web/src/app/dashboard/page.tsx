@@ -35,6 +35,7 @@ export default function DashboardPage() {
   const peerRef = useRef<RTCPeerConnection | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([])
+  const lastCursorSend = useRef(0)
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('pv_token') : null
 
@@ -147,6 +148,56 @@ export default function DashboardPage() {
     } finally {
       setCreating(false)
     }
+  }
+
+  function handleVideoMouseMove(e: React.MouseEvent<HTMLVideoElement>) {
+    const now = Date.now()
+    if (now - lastCursorSend.current < 33) return // ~30fps
+    lastCursorSend.current = now
+
+    if (!session || !socketRef.current) return
+
+    const video = e.currentTarget
+    if (!video.videoWidth || !video.videoHeight) return
+
+    const rect = video.getBoundingClientRect()
+    const videoAspect = video.videoWidth / video.videoHeight
+    const elemAspect = rect.width / rect.height
+
+    let contentLeft: number, contentTop: number, contentWidth: number, contentHeight: number
+
+    if (videoAspect > elemAspect) {
+      // Letterbox: barras arriba y abajo
+      contentWidth = rect.width
+      contentHeight = rect.width / videoAspect
+      contentLeft = 0
+      contentTop = (rect.height - contentHeight) / 2
+    } else {
+      // Pillarbox: barras izquierda y derecha
+      contentHeight = rect.height
+      contentWidth = rect.height * videoAspect
+      contentLeft = (rect.width - contentWidth) / 2
+      contentTop = 0
+    }
+
+    const mouseX = e.clientX - rect.left - contentLeft
+    const mouseY = e.clientY - rect.top - contentTop
+
+    if (mouseX < 0 || mouseX > contentWidth || mouseY < 0 || mouseY > contentHeight) {
+      socketRef.current.emit('cursor-hide', { token: session.token })
+      return
+    }
+
+    socketRef.current.emit('cursor-move', {
+      token: session.token,
+      x: mouseX / contentWidth,
+      y: mouseY / contentHeight,
+    })
+  }
+
+  function handleVideoMouseLeave() {
+    if (!session || !socketRef.current) return
+    socketRef.current.emit('cursor-hide', { token: session.token })
   }
 
   function copyLink() {
@@ -309,7 +360,9 @@ export default function DashboardPage() {
             playsInline
             muted
             className="w-full"
-            style={{ maxHeight: '600px', backgroundColor: '#000' }}
+            style={{ maxHeight: '600px', backgroundColor: '#000', cursor: 'crosshair' }}
+            onMouseMove={handleVideoMouseMove}
+            onMouseLeave={handleVideoMouseLeave}
           />
         </div>
 

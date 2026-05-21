@@ -172,6 +172,28 @@ export function setupSignaling(io: SocketIOServer, redis: Redis): void {
     });
 
     // ------------------------------------------------------------------
+    // cursor-move: Host broadcasts pointer position to client
+    // ------------------------------------------------------------------
+    socket.on('cursor-move', (payload: { token: string; x: number; y: number }) => {
+      const { token, x, y } = payload;
+      const rooms = Array.from(socket.rooms);
+      if (rooms.includes(hostRoom(token))) {
+        socket.to(clientRoom(token)).emit('cursor-move', { x, y });
+      }
+    });
+
+    // ------------------------------------------------------------------
+    // cursor-hide: Host pointer left the video area
+    // ------------------------------------------------------------------
+    socket.on('cursor-hide', (payload: { token: string }) => {
+      const { token } = payload;
+      const rooms = Array.from(socket.rooms);
+      if (rooms.includes(hostRoom(token))) {
+        socket.to(clientRoom(token)).emit('cursor-hide');
+      }
+    });
+
+    // ------------------------------------------------------------------
     // session-end: Either party explicitly ends the session
     // ------------------------------------------------------------------
     socket.on('session-end', async (payload: SessionEndPayload) => {
