@@ -6,6 +6,18 @@ import { getSession, updateSession, deleteSession } from '../services/sessionSer
 // Types for event payloads
 // ---------------------------------------------------------------------------
 
+interface SdpInit {
+  type: 'offer' | 'answer' | 'pranswer' | 'rollback';
+  sdp?: string;
+}
+
+interface IceCandidateInit {
+  candidate?: string;
+  sdpMid?: string | null;
+  sdpMLineIndex?: number | null;
+  usernameFragment?: string | null;
+}
+
 interface JoinHostPayload {
   token: string;
 }
@@ -16,17 +28,17 @@ interface JoinClientPayload {
 
 interface OfferPayload {
   token: string;
-  sdp: RTCSessionDescriptionInit;
+  sdp: SdpInit;
 }
 
 interface AnswerPayload {
   token: string;
-  sdp: RTCSessionDescriptionInit;
+  sdp: SdpInit;
 }
 
 interface IceCandidatePayload {
   token: string;
-  candidate: RTCIceCandidateInit;
+  candidate: IceCandidateInit;
 }
 
 interface SessionEndPayload {
