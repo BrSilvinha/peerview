@@ -153,44 +153,15 @@ export default function DashboardPage() {
 
   function handleVideoMouseMove(e: React.MouseEvent<HTMLVideoElement>) {
     const now = Date.now()
-    if (now - lastCursorSend.current < 33) return // ~30fps
+    if (now - lastCursorSend.current < 33) return
     lastCursorSend.current = now
 
     if (!session || !socketRef.current) return
 
-    const video = e.currentTarget
-    if (!video.videoWidth || !video.videoHeight) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = (e.clientX - rect.left) / rect.width
+    const y = (e.clientY - rect.top) / rect.height
 
-    const rect = video.getBoundingClientRect()
-    const videoAspect = video.videoWidth / video.videoHeight
-    const elemAspect = rect.width / rect.height
-
-    let contentLeft: number, contentTop: number, contentWidth: number, contentHeight: number
-
-    if (videoAspect > elemAspect) {
-      // Letterbox: barras arriba y abajo
-      contentWidth = rect.width
-      contentHeight = rect.width / videoAspect
-      contentLeft = 0
-      contentTop = (rect.height - contentHeight) / 2
-    } else {
-      // Pillarbox: barras izquierda y derecha
-      contentHeight = rect.height
-      contentWidth = rect.height * videoAspect
-      contentLeft = (rect.width - contentWidth) / 2
-      contentTop = 0
-    }
-
-    const mouseX = e.clientX - rect.left - contentLeft
-    const mouseY = e.clientY - rect.top - contentTop
-
-    if (mouseX < 0 || mouseX > contentWidth || mouseY < 0 || mouseY > contentHeight) {
-      socketRef.current.emit('cursor-hide', { token: session.token })
-      return
-    }
-
-    const x = mouseX / contentWidth
-    const y = mouseY / contentHeight
     setCursorPos({ x, y })
     socketRef.current.emit('cursor-move', { token: session.token, x, y })
   }
