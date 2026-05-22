@@ -10,8 +10,6 @@ import {
   LogOut,
   Plus,
   Clock,
-  Wifi,
-  WifiOff,
   X,
 } from 'lucide-react'
 
@@ -152,7 +150,7 @@ export default function DashboardPage() {
     }
   }
 
-  function handleVideoMouseMove(e: React.MouseEvent<HTMLVideoElement>) {
+  function handlePointerMove(e: React.MouseEvent<HTMLDivElement>) {
     const now = Date.now()
     if (now - lastCursorSend.current < 33) return
     lastCursorSend.current = now
@@ -167,7 +165,7 @@ export default function DashboardPage() {
     socketRef.current.emit('cursor-move', { token: session.token, x, y })
   }
 
-  function handleVideoMouseLeave() {
+  function handlePointerLeave() {
     setCursorPos(null)
     if (!session || !socketRef.current) return
     socketRef.current.emit('cursor-hide', { token: session.token })
@@ -317,77 +315,87 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Expiry + Status */}
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text-muted)' }}>
-                  <Clock size={14} />
-                  <span>Expira: {new Date(session.expiresAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-sm">
-                  {clientStatus === 'connected' ? (
-                    <>
-                      <Wifi size={14} color="#86EFAC" />
-                      <span style={{ color: '#86EFAC' }}>Cliente conectado</span>
-                    </>
-                  ) : (
-                    <>
-                      <WifiOff size={14} color="var(--text-muted)" />
-                      <span style={{ color: 'var(--text-muted)' }}>Esperando conexion...</span>
-                    </>
-                  )}
-                </div>
+              {/* Expiry */}
+              <div className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text-muted)' }}>
+                <Clock size={14} />
+                <span>Expira: {new Date(session.expiresAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
             </div>
           )}
         </div>
 
-        {/* Video viewer — always mounted so videoRef is ready when ontrack fires */}
-        <div
-          className="rounded-xl overflow-hidden"
-          style={{
-            backgroundColor: '#000',
-            border: '1px solid var(--border)',
-            display: session && clientStatus === 'connected' ? 'block' : 'none',
-          }}
-        >
+        {/* Pointer zone — visible whenever a session is active */}
+        {session && (
           <div
-            className="flex items-center justify-between px-4 py-2"
-            style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}
+            className="rounded-xl overflow-hidden"
+            style={{ border: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}
           >
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <div
+              className="flex items-center gap-2 px-4 py-2"
+              style={{ borderBottom: '1px solid var(--border)' }}
+            >
+              <div
+                className="w-2 h-2 rounded-full"
+                style={{ backgroundColor: cursorPos ? '#ef4444' : 'var(--text-muted)' }}
+              />
               <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                Pantalla en vivo
+                {cursorPos ? 'Señalando...' : 'Zona de puntero — mueve el cursor aqui para señalar'}
               </span>
             </div>
-          </div>
-          <div style={{ position: 'relative' }}>
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full"
-              style={{ maxHeight: '600px', backgroundColor: '#000', cursor: 'crosshair', display: 'block' }}
-              onMouseMove={handleVideoMouseMove}
-              onMouseLeave={handleVideoMouseLeave}
-            />
-            {cursorPos && (
+
+            {/* 16:9 pointer area */}
+            <div
+              style={{ position: 'relative', width: '100%', paddingBottom: '56.25%', cursor: 'crosshair' }}
+              onMouseMove={handlePointerMove}
+              onMouseLeave={handlePointerLeave}
+            >
+              {/* Grid background */}
               <div style={{
-                position: 'absolute',
-                left: `${cursorPos.x * 100}%`,
-                top: `${cursorPos.y * 100}%`,
-                width: 20,
-                height: 20,
-                borderRadius: '50%',
-                background: 'rgba(239, 68, 68, 0.85)',
-                border: '2px solid #fff',
-                boxShadow: '0 0 8px rgba(239,68,68,0.5)',
-                transform: 'translate(-50%, -50%)',
-                pointerEvents: 'none',
+                position: 'absolute', inset: 0,
+                backgroundColor: '#0a0f1e',
+                backgroundImage: [
+                  'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px)',
+                  'linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)',
+                ].join(','),
+                backgroundSize: '10% 10%',
               }} />
-            )}
+
+              {/* Center hint text */}
+              {!cursorPos && (
+                <div style={{
+                  position: 'absolute', inset: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  pointerEvents: 'none',
+                }}>
+                  <p style={{ color: 'rgba(255,255,255,0.15)', fontSize: 14 }}>
+                    Mueve el cursor aqui
+                  </p>
+                </div>
+              )}
+
+              {/* Red dot preview */}
+              {cursorPos && (
+                <div style={{
+                  position: 'absolute',
+                  left: `${cursorPos.x * 100}%`,
+                  top: `${cursorPos.y * 100}%`,
+                  width: 22, height: 22,
+                  borderRadius: '50%',
+                  background: 'rgba(239,68,68,0.9)',
+                  border: '2.5px solid #fff',
+                  boxShadow: '0 0 0 3px rgba(239,68,68,0.35)',
+                  transform: 'translate(-50%,-50%)',
+                  pointerEvents: 'none',
+                  transition: 'left 0.05s linear, top 0.05s linear',
+                }} />
+              )}
+            </div>
           </div>
+        )}
+
+        {/* Video viewer — only when a WebRTC client connects */}
+        <div style={{ display: session && clientStatus === 'connected' ? 'block' : 'none' }}>
+          <video ref={videoRef} autoPlay playsInline muted style={{ display: 'none' }} />
         </div>
 
         {/* Empty state */}
