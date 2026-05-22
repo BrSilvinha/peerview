@@ -51,6 +51,7 @@ interface SessionEndPayload {
 
 const hostRoom = (token: string) => `host:${token}`;
 const clientRoom = (token: string) => `client:${token}`;
+const observerRoom = (token: string) => `observer:${token}`;
 
 // ---------------------------------------------------------------------------
 // Main signaling setup
@@ -172,13 +173,28 @@ export function setupSignaling(io: SocketIOServer, redis: Redis): void {
     });
 
     // ------------------------------------------------------------------
-    // cursor-move: Host broadcasts pointer position to client
+    // join-observer: Extension connects to receive cursor events only
+    // ------------------------------------------------------------------
+    socket.on('join-observer', async (payload: { token: string }) => {
+      const { token } = payload;
+      const session = await getSession(redis, token);
+      if (!session) {
+        socket.emit('error', { message: 'Session not found or expired' });
+        return;
+      }
+      await socket.join(observerRoom(token));
+      socket.emit('observer-joined', { token });
+    });
+
+    // ------------------------------------------------------------------
+    // cursor-move: Host broadcasts pointer position to client + observers
     // ------------------------------------------------------------------
     socket.on('cursor-move', (payload: { token: string; x: number; y: number }) => {
       const { token, x, y } = payload;
       const rooms = Array.from(socket.rooms);
       if (rooms.includes(hostRoom(token))) {
         socket.to(clientRoom(token)).emit('cursor-move', { x, y });
+        socket.to(observerRoom(token)).emit('cursor-move', { x, y });
       }
     });
 
@@ -190,6 +206,7 @@ export function setupSignaling(io: SocketIOServer, redis: Redis): void {
       const rooms = Array.from(socket.rooms);
       if (rooms.includes(hostRoom(token))) {
         socket.to(clientRoom(token)).emit('cursor-hide');
+        socket.to(observerRoom(token)).emit('cursor-hide');
       }
     });
 
@@ -202,9 +219,10 @@ export function setupSignaling(io: SocketIOServer, redis: Redis): void {
 
       await deleteSession(redis, token);
 
-      // Notify both rooms
+      // Notify all rooms
       io.to(hostRoom(token)).emit('session-ended', { token });
       io.to(clientRoom(token)).emit('session-ended', { token });
+      io.to(observerRoom(token)).emit('session-ended', { token });
 
       // Make all sockets in both rooms leave
       const hostSockets = await io.in(hostRoom(token)).fetchSockets();

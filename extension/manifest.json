@@ -1,0 +1,23 @@
+{
+  "manifest_version": 2,
+  "name": "PeerView",
+  "version": "1.0",
+  "description": "Puntero remoto para soporte",
+  "permissions": ["tabs", "storage", "activeTab", "<all_urls>"],
+  "background": {
+    "scripts": ["socket-client.js", "background.js"],
+    "persistent": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end",
+      "all_frames": false
+    }
+  ],
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_title": "PeerView"
+  }
+}
