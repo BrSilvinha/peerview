@@ -55,11 +55,19 @@ function disconnect() {
 
 function broadcastToActiveTab(message) {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (tabs && tabs[0]) {
-      chrome.tabs.sendMessage(tabs[0].id, message, () => {
-        // Ignorar errores si el content script no está listo
+    if (!tabs || !tabs[0]) return
+    const tabId = tabs[0].id
+
+    chrome.tabs.sendMessage(tabId, message, () => {
+      if (!chrome.runtime.lastError) return
+
+      // Content script not running in this tab — inject it and retry
+      chrome.tabs.executeScript(tabId, { file: 'content.js' }, () => {
         void chrome.runtime.lastError
+        chrome.tabs.sendMessage(tabId, message, () => {
+          void chrome.runtime.lastError
+        })
       })
-    }
+    })
   })
 }
