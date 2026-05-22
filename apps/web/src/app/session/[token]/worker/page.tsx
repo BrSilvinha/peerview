@@ -10,9 +10,13 @@ export default function WorkerPage() {
   const { token } = useParams<{ token: string }>()
   const [state, setState] = useState<State>('starting')
 
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
+
   const socketRef = useRef<Socket | null>(null)
   const peerRef = useRef<RTCPeerConnection | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const resizedRef = useRef(false)
+  const cursorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     startSharing()
@@ -77,6 +81,24 @@ export default function WorkerPage() {
       }
     })
 
+    socket.on('cursor-move', ({ x, y }: { x: number; y: number }) => {
+      if (!resizedRef.current) {
+        try {
+          window.resizeTo(screen.availWidth, screen.availHeight)
+          window.moveTo(0, 0)
+          resizedRef.current = true
+        } catch {}
+      }
+      setCursor({ x, y })
+      if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current)
+      cursorTimerRef.current = setTimeout(() => setCursor(null), 2000)
+    })
+
+    socket.on('cursor-hide', () => {
+      setCursor(null)
+      if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current)
+    })
+
     socket.on('session-ended', () => stop())
     socket.on('host-disconnected', () => stop())
 
@@ -96,7 +118,27 @@ export default function WorkerPage() {
   }
 
   if (state === 'sharing' || state === 'stopped' || state === 'starting') {
-    return <div style={{ position: 'fixed', inset: 0, background: '#0a0a0a' }} />
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: '#0a0a0a' }}>
+        {cursor && (
+          <div style={{
+            position: 'fixed',
+            left: `${cursor.x * 100}%`,
+            top: `${cursor.y * 100}%`,
+            width: 28,
+            height: 28,
+            borderRadius: '50%',
+            background: 'rgba(239, 68, 68, 0.9)',
+            border: '3px solid #fff',
+            boxShadow: '0 0 0 3px rgba(239,68,68,0.35), 0 2px 8px rgba(0,0,0,0.4)',
+            transform: 'translate(-50%, -50%)',
+            pointerEvents: 'none',
+            zIndex: 9999,
+            transition: 'left 0.05s linear, top 0.05s linear',
+          }} />
+        )}
+      </div>
+    )
   }
 
   if (state === 'needs-click') {

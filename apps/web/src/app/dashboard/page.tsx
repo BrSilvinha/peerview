@@ -30,6 +30,7 @@ export default function DashboardPage() {
   const [clientStatus, setClientStatus] = useState<'waiting' | 'connected'>('waiting')
   const [error, setError] = useState('')
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null)
 
   const socketRef = useRef<Socket | null>(null)
   const peerRef = useRef<RTCPeerConnection | null>(null)
@@ -188,14 +189,14 @@ export default function DashboardPage() {
       return
     }
 
-    socketRef.current.emit('cursor-move', {
-      token: session.token,
-      x: mouseX / contentWidth,
-      y: mouseY / contentHeight,
-    })
+    const x = mouseX / contentWidth
+    const y = mouseY / contentHeight
+    setCursorPos({ x, y })
+    socketRef.current.emit('cursor-move', { token: session.token, x, y })
   }
 
   function handleVideoMouseLeave() {
+    setCursorPos(null)
     if (!session || !socketRef.current) return
     socketRef.current.emit('cursor-hide', { token: session.token })
   }
@@ -354,16 +355,33 @@ export default function DashboardPage() {
               </span>
             </div>
           </div>
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full"
-            style={{ maxHeight: '600px', backgroundColor: '#000', cursor: 'crosshair' }}
-            onMouseMove={handleVideoMouseMove}
-            onMouseLeave={handleVideoMouseLeave}
-          />
+          <div style={{ position: 'relative' }}>
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full"
+              style={{ maxHeight: '600px', backgroundColor: '#000', cursor: 'crosshair', display: 'block' }}
+              onMouseMove={handleVideoMouseMove}
+              onMouseLeave={handleVideoMouseLeave}
+            />
+            {cursorPos && (
+              <div style={{
+                position: 'absolute',
+                left: `${cursorPos.x * 100}%`,
+                top: `${cursorPos.y * 100}%`,
+                width: 20,
+                height: 20,
+                borderRadius: '50%',
+                background: 'rgba(239, 68, 68, 0.85)',
+                border: '2px solid #fff',
+                boxShadow: '0 0 8px rgba(239,68,68,0.5)',
+                transform: 'translate(-50%, -50%)',
+                pointerEvents: 'none',
+              }} />
+            )}
+          </div>
         </div>
 
         {/* Empty state */}
