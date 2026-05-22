@@ -36,6 +36,7 @@ export default function DashboardPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([])
   const lastCursorSend = useRef(0)
+  const isMouseDown = useRef(false)
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('pv_token') : null
 
@@ -61,6 +62,8 @@ export default function DashboardPage() {
     setSession(null)
     setClientStatus('waiting')
     setRemoteStream(null)
+    setCursorPos(null)
+    isMouseDown.current = false
   }, [session])
 
   const setupSocket = useCallback((sessionToken: string) => {
@@ -117,6 +120,8 @@ export default function DashboardPage() {
     socket.on('client-disconnected', () => {
       setClientStatus('waiting')
       setRemoteStream(null)
+      setCursorPos(null)
+      isMouseDown.current = false
       peerRef.current?.close()
       peerRef.current = null
     })
@@ -150,22 +155,38 @@ export default function DashboardPage() {
     }
   }
 
-  function handlePointerMove(e: React.MouseEvent<HTMLDivElement>) {
+  function sendCursor(e: React.MouseEvent<HTMLVideoElement>) {
     const now = Date.now()
     if (now - lastCursorSend.current < 33) return
     lastCursorSend.current = now
-
     if (!session || !socketRef.current) return
-
     const rect = e.currentTarget.getBoundingClientRect()
     const x = (e.clientX - rect.left) / rect.width
     const y = (e.clientY - rect.top) / rect.height
-
     setCursorPos({ x, y })
     socketRef.current.emit('cursor-move', { token: session.token, x, y })
   }
 
-  function handlePointerLeave() {
+  function handleMouseDown(e: React.MouseEvent<HTMLVideoElement>) {
+    isMouseDown.current = true
+    sendCursor(e)
+  }
+
+  function handleMouseMove(e: React.MouseEvent<HTMLVideoElement>) {
+    if (!isMouseDown.current) return
+    sendCursor(e)
+  }
+
+  function handleMouseUp() {
+    isMouseDown.current = false
+    setCursorPos(null)
+    if (!session || !socketRef.current) return
+    socketRef.current.emit('cursor-hide', { token: session.token })
+  }
+
+  function handleMouseLeave() {
+    if (!isMouseDown.current) return
+    isMouseDown.current = false
     setCursorPos(null)
     if (!session || !socketRef.current) return
     socketRef.current.emit('cursor-hide', { token: session.token })
@@ -192,7 +213,6 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg)' }}>
-      {/* Header */}
       <header
         className="flex items-center justify-between px-6 py-4"
         style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}
@@ -216,7 +236,6 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-8 space-y-6">
-        {/* Session controls */}
         <div
           className="rounded-xl p-6"
           style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)' }}
@@ -254,14 +273,16 @@ export default function DashboardPage() {
           </div>
 
           {error && (
-            <p className="text-sm px-3 py-2 rounded-lg mb-4" style={{ backgroundColor: '#2D1414', color: '#F87171', border: '1px solid #3D1414' }}>
+            <p
+              className="text-sm px-3 py-2 rounded-lg mb-4"
+              style={{ backgroundColor: '#2D1414', color: '#F87171', border: '1px solid #3D1414' }}
+            >
               {error}
             </p>
           )}
 
           {session && (
             <div className="space-y-4">
-              {/* Link */}
               <div>
                 <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
                   Link para compartir
@@ -270,7 +291,10 @@ export default function DashboardPage() {
                   className="flex items-center gap-2 px-3 py-2.5 rounded-lg"
                   style={{ backgroundColor: 'var(--bg)', border: '1px solid var(--border)' }}
                 >
-                  <span className="flex-1 text-sm truncate font-mono" style={{ color: 'var(--text-primary)' }}>
+                  <span
+                    className="flex-1 text-sm truncate font-mono"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
                     {session.link}
                   </span>
                   <button
@@ -288,7 +312,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Token para extension */}
               <div>
                 <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
                   Token (para la extension del navegador)
@@ -297,7 +320,10 @@ export default function DashboardPage() {
                   className="flex items-center gap-2 px-3 py-2.5 rounded-lg"
                   style={{ backgroundColor: 'var(--bg)', border: '1px solid var(--border)' }}
                 >
-                  <span className="flex-1 text-sm font-mono" style={{ color: 'var(--text-primary)', letterSpacing: '0.03em' }}>
+                  <span
+                    className="flex-1 text-sm font-mono"
+                    style={{ color: 'var(--text-primary)', letterSpacing: '0.03em' }}
+                  >
                     {session.token}
                   </span>
                   <button
@@ -315,16 +341,20 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Expiry */}
               <div className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text-muted)' }}>
                 <Clock size={14} />
-                <span>Expira: {new Date(session.expiresAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</span>
+                <span>
+                  Expira:{' '}
+                  {new Date(session.expiresAt).toLocaleTimeString('es-PE', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
               </div>
             </div>
           )}
         </div>
 
-        {/* Pointer zone — visible whenever a session is active */}
         {session && (
           <div
             className="rounded-xl overflow-hidden"
@@ -336,69 +366,80 @@ export default function DashboardPage() {
             >
               <div
                 className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: cursorPos ? '#ef4444' : 'var(--text-muted)' }}
+                style={{
+                  backgroundColor:
+                    clientStatus === 'connected' ? '#22c55e' : 'var(--text-muted)',
+                }}
               />
               <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                {cursorPos ? 'Señalando...' : 'Zona de puntero — mueve el cursor aqui para señalar'}
+                {clientStatus === 'connected' ? 'Cliente conectado' : 'Esperando que el cliente comparta su pantalla...'}
               </span>
             </div>
 
-            {/* 16:9 pointer area */}
-            <div
-              style={{ position: 'relative', width: '100%', paddingBottom: '56.25%', cursor: 'crosshair' }}
-              onMouseMove={handlePointerMove}
-              onMouseLeave={handlePointerLeave}
-            >
-              {/* Grid background */}
-              <div style={{
-                position: 'absolute', inset: 0,
-                backgroundColor: '#0a0f1e',
-                backgroundImage: [
-                  'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px)',
-                  'linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)',
-                ].join(','),
-                backgroundSize: '10% 10%',
-              }} />
-
-              {/* Center hint text */}
-              {!cursorPos && (
-                <div style={{
-                  position: 'absolute', inset: 0,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  pointerEvents: 'none',
-                }}>
-                  <p style={{ color: 'rgba(255,255,255,0.15)', fontSize: 14 }}>
-                    Mueve el cursor aqui
-                  </p>
-                </div>
-              )}
-
-              {/* Red dot preview */}
-              {cursorPos && (
-                <div style={{
-                  position: 'absolute',
-                  left: `${cursorPos.x * 100}%`,
-                  top: `${cursorPos.y * 100}%`,
-                  width: 22, height: 22,
-                  borderRadius: '50%',
-                  background: 'rgba(239,68,68,0.9)',
-                  border: '2.5px solid #fff',
-                  boxShadow: '0 0 0 3px rgba(239,68,68,0.35)',
-                  transform: 'translate(-50%,-50%)',
-                  pointerEvents: 'none',
-                  transition: 'left 0.05s linear, top 0.05s linear',
-                }} />
-              )}
+            <div style={{ position: 'relative', width: '100%', paddingBottom: '56.25%', backgroundColor: '#0a0f1e' }}>
+              <div style={{ position: 'absolute', inset: 0 }}>
+                {clientStatus === 'connected' ? (
+                  <>
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      title="Mantén click presionado para señalar"
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'contain',
+                        display: 'block',
+                        cursor: 'crosshair',
+                      }}
+                      onMouseDown={handleMouseDown}
+                      onMouseMove={handleMouseMove}
+                      onMouseUp={handleMouseUp}
+                      onMouseLeave={handleMouseLeave}
+                    />
+                    {cursorPos && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: `${cursorPos.x * 100}%`,
+                          top: `${cursorPos.y * 100}%`,
+                          width: 22,
+                          height: 22,
+                          borderRadius: '50%',
+                          background: 'rgba(239,68,68,0.9)',
+                          border: '2.5px solid #fff',
+                          boxShadow: '0 0 0 3px rgba(239,68,68,0.3)',
+                          transform: 'translate(-50%,-50%)',
+                          pointerEvents: 'none',
+                          transition: 'left 40ms linear, top 40ms linear',
+                        }}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 12,
+                    }}
+                  >
+                    <Monitor size={36} color="rgba(255,255,255,0.15)" />
+                    <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: 14 }}>
+                      Esperando que el cliente comparta su pantalla...
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Video viewer — only when a WebRTC client connects */}
-        <div style={{ display: session && clientStatus === 'connected' ? 'block' : 'none' }}>
-          <video ref={videoRef} autoPlay playsInline muted style={{ display: 'none' }} />
-        </div>
-
-        {/* Empty state */}
         {!session && (
           <div
             className="rounded-xl p-12 text-center"
