@@ -386,24 +386,27 @@ export default function DashboardPage() {
               <div style={{ position: 'absolute', inset: 0 }}>
                 {clientStatus === 'connected' ? (
                   <>
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      title="Mantén click presionado para señalar"
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'contain',
-                        display: 'block',
-                        cursor: 'crosshair',
-                      }}
-                      onMouseDown={handleMouseDown}
-                      onMouseMove={handleMouseMove}
-                      onMouseUp={handleMouseUp}
-                      onMouseLeave={handleMouseLeave}
-                    />
+                    {/* isolation:isolate keeps the video's GPU layer below the dot */}
+                    <div style={{ position: 'absolute', inset: 0, isolation: 'isolate' }}>
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        title="Mantén click presionado para señalar"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'contain',
+                          display: 'block',
+                          cursor: 'crosshair',
+                        }}
+                        onMouseDown={handleMouseDown}
+                        onMouseMove={handleMouseMove}
+                        onMouseUp={handleMouseUp}
+                        onMouseLeave={handleMouseLeave}
+                      />
+                    </div>
                     {cursorPos && (
                       <div
                         style={{
@@ -416,9 +419,11 @@ export default function DashboardPage() {
                           background: 'rgba(239,68,68,0.9)',
                           border: '2px solid #fff',
                           boxShadow: '0 0 0 3px rgba(239,68,68,0.3)',
-                          transform: 'translate(-50%,-50%)',
+                          transform: 'translate(-50%,-50%) translateZ(0)',
                           pointerEvents: 'none',
                           transition: 'left 40ms linear, top 40ms linear',
+                          zIndex: 2147483647,
+                          willChange: 'left, top',
                         }}
                       />
                     )}
