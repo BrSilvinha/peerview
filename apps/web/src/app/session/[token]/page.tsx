@@ -14,7 +14,6 @@ export default function SessionPage() {
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null)
   const [showControls, setShowControls] = useState(true)
   const [isCamera, setIsCamera] = useState(false)
-  const [videoSize, setVideoSize] = useState<{ w: number; h: number } | null>(null)
 
   const socketRef = useRef<Socket | null>(null)
   const peerRef = useRef<RTCPeerConnection | null>(null)
@@ -51,38 +50,6 @@ export default function SessionPage() {
     setShowControls(true)
     if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current)
     controlsTimerRef.current = setTimeout(() => setShowControls(false), 3000)
-  }
-
-  // Compute dot position in pixels, accounting for objectFit:contain letterboxing.
-  // cursorPos coords are content-relative (0-1), not viewport-relative.
-  function getDotStyle(x: number, y: number): React.CSSProperties {
-    if (!videoSize) {
-      return { left: `${x * 100}%`, top: `${y * 100}%` }
-    }
-    const containerW = window.innerWidth
-    const containerH = window.innerHeight
-    const { w: vw, h: vh } = videoSize
-
-    let displayW: number, displayH: number, displayX: number, displayY: number
-
-    if (vw / vh > containerW / containerH) {
-      // video wider than container → black bars top/bottom
-      displayW = containerW
-      displayH = containerW * vh / vw
-      displayX = 0
-      displayY = (containerH - displayH) / 2
-    } else {
-      // video taller than container → black bars left/right
-      displayH = containerH
-      displayW = containerH * vw / vh
-      displayX = (containerW - displayW) / 2
-      displayY = 0
-    }
-
-    return {
-      left: `${displayX + x * displayW}px`,
-      top: `${displayY + y * displayH}px`,
-    }
   }
 
   async function startSharing(forceCamera = false) {
@@ -165,8 +132,6 @@ export default function SessionPage() {
   }
 
   if (state === 'sharing') {
-    const dotStyle = cursorPos ? getDotStyle(cursorPos.x, cursorPos.y) : null
-
     return (
       <div
         style={{ position: 'fixed', inset: 0, background: '#000' }}
@@ -178,10 +143,6 @@ export default function SessionPage() {
           autoPlay
           playsInline
           muted
-          onLoadedMetadata={(e) => {
-            const v = e.currentTarget
-            setVideoSize({ w: v.videoWidth, h: v.videoHeight })
-          }}
           style={{
             position: 'absolute',
             inset: 0,
@@ -192,20 +153,21 @@ export default function SessionPage() {
           }}
         />
 
-        {dotStyle && (
+        {cursorPos && (
           <div
             style={{
-              position: 'absolute',
-              ...dotStyle,
-              width: 28,
-              height: 28,
+              position: 'fixed',
+              left: `${cursorPos.x * 100}vw`,
+              top: `${cursorPos.y * 100}vh`,
+              width: 36,
+              height: 36,
               borderRadius: '50%',
-              background: 'rgba(239,68,68,0.92)',
+              background: 'rgba(239,68,68,0.95)',
               border: '3px solid #fff',
-              boxShadow: '0 0 0 5px rgba(239,68,68,0.35), 0 2px 12px rgba(0,0,0,0.5)',
+              boxShadow: '0 0 0 6px rgba(239,68,68,0.4), 0 2px 16px rgba(0,0,0,0.6)',
               transform: 'translate(-50%, -50%)',
               transition: 'left 40ms linear, top 40ms linear',
-              zIndex: 10,
+              zIndex: 9999,
               pointerEvents: 'none',
             }}
           />
