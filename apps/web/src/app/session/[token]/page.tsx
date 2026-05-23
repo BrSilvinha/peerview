@@ -14,6 +14,7 @@ export default function SessionPage() {
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null)
   const [showControls, setShowControls] = useState(true)
   const [isCamera, setIsCamera] = useState(false)
+  const [signalCount, setSignalCount] = useState(0)
 
   const socketRef = useRef<Socket | null>(null)
   const peerRef = useRef<RTCPeerConnection | null>(null)
@@ -95,8 +96,12 @@ export default function SessionPage() {
       dc.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data)
-          if (msg.type === 'cursor-move') setCursorPos({ x: msg.x, y: msg.y })
-          else if (msg.type === 'cursor-hide') setCursorPos(null)
+          if (msg.type === 'cursor-move') {
+            setCursorPos({ x: msg.x, y: msg.y })
+            setSignalCount(n => n + 1)
+          } else if (msg.type === 'cursor-hide') {
+            setCursorPos(null)
+          }
         } catch { /* ignore */ }
       }
     }
@@ -121,7 +126,10 @@ export default function SessionPage() {
       else pendingIce.push(candidate)
     })
 
-    socket.on('cursor-move', ({ x, y }: { x: number; y: number }) => setCursorPos({ x, y }))
+    socket.on('cursor-move', ({ x, y }: { x: number; y: number }) => {
+      setCursorPos({ x, y })
+      setSignalCount(n => n + 1)
+    })
     socket.on('cursor-hide', () => setCursorPos(null))
     socket.on('session-ended', () => stopSharing())
     socket.on('host-disconnected', () => stopSharing())
@@ -151,37 +159,42 @@ export default function SessionPage() {
         onMouseMove={resetControlsTimer}
         onTouchStart={resetControlsTimer}
       >
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          style={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'contain',
-            display: 'block',
-          }}
-        />
+        {/* Video behind everything. isolation:isolate keeps it below the dot layer. */}
+        <div style={{ position: 'absolute', inset: 0, isolation: 'isolate' }}>
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              display: 'block',
+            }}
+          />
+        </div>
 
+        {/* Dot — rendered in its own stacking context above the video compositor layer. */}
         {cursorPos && (
           <div
             style={{
               position: 'fixed',
               left: `${cursorPos.x * 100}vw`,
               top: `${cursorPos.y * 100}vh`,
-              width: 36,
-              height: 36,
+              width: 40,
+              height: 40,
               borderRadius: '50%',
               background: 'rgba(239,68,68,0.95)',
               border: '3px solid #fff',
               boxShadow: '0 0 0 6px rgba(239,68,68,0.4), 0 2px 16px rgba(0,0,0,0.6)',
-              transform: 'translate(-50%, -50%)',
+              // translateZ(0) forces this element onto its own GPU compositor
+              // layer, which renders above hardware-accelerated video on desktop.
+              transform: 'translate(-50%, -50%) translateZ(0)',
               transition: 'left 40ms linear, top 40ms linear',
-              zIndex: 9999,
+              zIndex: 2147483647,
               pointerEvents: 'none',
+              willChange: 'left, top',
             }}
           />
         )}
@@ -203,10 +216,21 @@ export default function SessionPage() {
             pointerEvents: showControls ? 'auto' : 'none',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#22c55e' }} />
-            <span style={{ color: '#e2e8f0', fontSize: 13 }}>
-              {isCamera ? 'Cámara activa' : 'Compartiendo pantalla'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#22c55e' }} />
+              <span style={{ color: '#e2e8f0', fontSize: 13 }}>
+                {isCamera ? 'Cámara activa' : 'Compartiendo pantalla'}
+              </span>
+            </div>
+            <span style={{
+              fontSize: 11,
+              color: signalCount > 0 ? '#86efac' : '#64748b',
+              background: 'rgba(0,0,0,0.4)',
+              padding: '2px 8px',
+              borderRadius: 10,
+            }}>
+              {signalCount > 0 ? `● Señales: ${signalCount}` : '○ Sin señal aún'}
             </span>
           </div>
           <button
