@@ -182,12 +182,12 @@ export default function SessionPage() {
               position: 'fixed',
               left: `${cursorPos.x * 100}vw`,
               top: `${cursorPos.y * 100}vh`,
-              width: 40,
-              height: 40,
+              width: 14,
+              height: 14,
               borderRadius: '50%',
               background: 'rgba(239,68,68,0.95)',
-              border: '3px solid #fff',
-              boxShadow: '0 0 0 6px rgba(239,68,68,0.4), 0 2px 16px rgba(0,0,0,0.6)',
+              border: '2px solid #fff',
+              boxShadow: '0 0 0 3px rgba(239,68,68,0.35)',
               // translateZ(0) forces this element onto its own GPU compositor
               // layer, which renders above hardware-accelerated video on desktop.
               transform: 'translate(-50%, -50%) translateZ(0)',
