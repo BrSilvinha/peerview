@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { io, Socket } from 'socket.io-client'
-import { Monitor, Loader2, ShieldAlert, StopCircle } from 'lucide-react'
+import { Monitor, Loader2, ShieldAlert, StopCircle, Camera } from 'lucide-react'
 
 type PageState = 'loading' | 'invalid' | 'ready' | 'sharing' | 'stopped' | 'error'
 
@@ -13,12 +13,20 @@ export default function SessionPage() {
   const [errorMsg, setErrorMsg] = useState('')
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null)
   const [showControls, setShowControls] = useState(true)
+  const [isCamera, setIsCamera] = useState(false)
+  const [videoSize, setVideoSize] = useState<{ w: number; h: number } | null>(null)
 
   const socketRef = useRef<Socket | null>(null)
   const peerRef = useRef<RTCPeerConnection | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // iOS Safari has no getDisplayMedia — detect at runtime (not during SSR)
+  const [hasDisplayMedia, setHasDisplayMedia] = useState(true)
+  useEffect(() => {
+    setHasDisplayMedia(typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia)
+  }, [])
 
   useEffect(() => {
     async function validateToken() {
@@ -33,46 +41,80 @@ export default function SessionPage() {
     validateToken()
   }, [token])
 
-  // Attach local stream to video element when sharing starts
   useEffect(() => {
     if (state === 'sharing' && videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current
     }
   }, [state])
 
-  // Auto-hide controls bar after 3s of no mouse movement
   function resetControlsTimer() {
     setShowControls(true)
     if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current)
     controlsTimerRef.current = setTimeout(() => setShowControls(false), 3000)
   }
 
-  async function startSharing() {
+  // Compute dot position in pixels, accounting for objectFit:contain letterboxing.
+  // cursorPos coords are content-relative (0-1), not viewport-relative.
+  function getDotStyle(x: number, y: number): React.CSSProperties {
+    if (!videoSize) {
+      return { left: `${x * 100}%`, top: `${y * 100}%` }
+    }
+    const containerW = window.innerWidth
+    const containerH = window.innerHeight
+    const { w: vw, h: vh } = videoSize
+
+    let displayW: number, displayH: number, displayX: number, displayY: number
+
+    if (vw / vh > containerW / containerH) {
+      // video wider than container → black bars top/bottom
+      displayW = containerW
+      displayH = containerW * vh / vw
+      displayX = 0
+      displayY = (containerH - displayH) / 2
+    } else {
+      // video taller than container → black bars left/right
+      displayH = containerH
+      displayW = containerH * vw / vh
+      displayX = (containerW - displayW) / 2
+      displayY = 0
+    }
+
+    return {
+      left: `${displayX + x * displayW}px`,
+      top: `${displayY + y * displayH}px`,
+    }
+  }
+
+  async function startSharing(forceCamera = false) {
+    const usingCamera = forceCamera || !navigator.mediaDevices?.getDisplayMedia
     let stream: MediaStream
+
     try {
-      stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 30 },
-        audio: false,
-      })
+      if (usingCamera) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        })
+      } else {
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false })
+      }
     } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'NotAllowedError') {
+      if (err instanceof Error && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
         setState('ready')
       } else {
-        setErrorMsg('No se pudo iniciar el uso compartido de pantalla.')
+        setErrorMsg('No se pudo iniciar la cámara o compartir pantalla.')
         setState('error')
       }
       return
     }
 
+    setIsCamera(usingCamera)
     streamRef.current = stream
 
     const socket = io(process.env.NEXT_PUBLIC_SERVER_URL!)
     socketRef.current = socket
     socket.emit('join-client', { token })
-
-    socket.on('reconnect', () => {
-      socket.emit('join-client', { token })
-    })
+    socket.on('reconnect', () => socket.emit('join-client', { token }))
 
     const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
     peerRef.current = pc
@@ -82,9 +124,7 @@ export default function SessionPage() {
     const pendingIce: RTCIceCandidateInit[] = []
 
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.emit('ice-candidate', { token, candidate: event.candidate })
-      }
+      if (event.candidate) socket.emit('ice-candidate', { token, candidate: event.candidate })
     }
 
     socket.on('offer', async ({ sdp }: { sdp: RTCSessionDescriptionInit }) => {
@@ -92,26 +132,17 @@ export default function SessionPage() {
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
       socket.emit('answer', { token, sdp: answer })
-      for (const candidate of pendingIce) {
-        await pc.addIceCandidate(candidate)
-      }
+      for (const c of pendingIce) await pc.addIceCandidate(c)
       pendingIce.length = 0
     })
 
     socket.on('ice-candidate', async ({ candidate }: { candidate: RTCIceCandidateInit }) => {
-      if (pc.remoteDescription) {
-        await pc.addIceCandidate(candidate)
-      } else {
-        pendingIce.push(candidate)
-      }
+      if (pc.remoteDescription) await pc.addIceCandidate(candidate)
+      else pendingIce.push(candidate)
     })
 
-    socket.on('cursor-move', ({ x, y }: { x: number; y: number }) => {
-      setCursorPos({ x, y })
-    })
-
+    socket.on('cursor-move', ({ x, y }: { x: number; y: number }) => setCursorPos({ x, y }))
     socket.on('cursor-hide', () => setCursorPos(null))
-
     socket.on('session-ended', () => stopSharing())
     socket.on('host-disconnected', () => stopSharing())
 
@@ -134,17 +165,23 @@ export default function SessionPage() {
   }
 
   if (state === 'sharing') {
+    const dotStyle = cursorPos ? getDotStyle(cursorPos.x, cursorPos.y) : null
+
     return (
       <div
         style={{ position: 'fixed', inset: 0, background: '#000' }}
         onMouseMove={resetControlsTimer}
+        onTouchStart={resetControlsTimer}
       >
-        {/* Mirror of the client's own captured screen */}
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget
+            setVideoSize({ w: v.videoWidth, h: v.videoHeight })
+          }}
           style={{
             position: 'absolute',
             inset: 0,
@@ -155,13 +192,11 @@ export default function SessionPage() {
           }}
         />
 
-        {/* Red dot from host */}
-        {cursorPos && (
+        {dotStyle && (
           <div
             style={{
               position: 'absolute',
-              left: `${cursorPos.x * 100}%`,
-              top: `${cursorPos.y * 100}%`,
+              ...dotStyle,
               width: 28,
               height: 28,
               borderRadius: '50%',
@@ -176,13 +211,11 @@ export default function SessionPage() {
           />
         )}
 
-        {/* Controls bar — auto-hides after 3s */}
+        {/* Controls bar — auto-hides after 3 s of inactivity */}
         <div
           style={{
             position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
+            top: 0, left: 0, right: 0,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -197,26 +230,21 @@ export default function SessionPage() {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#22c55e' }} />
-            <span style={{ color: '#e2e8f0', fontSize: 13 }}>Compartiendo pantalla</span>
+            <span style={{ color: '#e2e8f0', fontSize: 13 }}>
+              {isCamera ? 'Cámara activa' : 'Compartiendo pantalla'}
+            </span>
           </div>
           <button
             onClick={stopSharing}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '6px 12px',
-              borderRadius: 6,
-              border: 'none',
-              background: 'rgba(239,68,68,0.85)',
-              color: '#fff',
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 6, border: 'none',
+              background: 'rgba(239,68,68,0.85)', color: '#fff',
+              fontSize: 13, fontWeight: 600, cursor: 'pointer',
             }}
           >
             <StopCircle size={14} />
-            Dejar de compartir
+            Detener
           </button>
         </div>
       </div>
@@ -256,7 +284,7 @@ export default function SessionPage() {
                 Link inválido o expirado
               </h2>
               <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                Este link de sesión ya no es válido. Solicita uno nuevo al técnico.
+                Este link ya no es válido. Solicita uno nuevo al técnico.
               </p>
             </div>
           )}
@@ -264,40 +292,63 @@ export default function SessionPage() {
           {state === 'ready' && (
             <div className="flex flex-col items-center gap-4">
               <div className="p-4 rounded-full" style={{ backgroundColor: 'var(--bg)' }}>
-                <Monitor size={40} color="var(--accent)" />
+                {hasDisplayMedia
+                  ? <Monitor size={40} color="var(--accent)" />
+                  : <Camera size={40} color="var(--accent)" />}
               </div>
               <div>
                 <h2 className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>
-                  Compartir tu pantalla
+                  {hasDisplayMedia ? 'Compartir tu pantalla' : 'Mostrar con la cámara'}
                 </h2>
                 <p className="text-sm mt-1.5" style={{ color: 'var(--text-muted)' }}>
-                  Al hacer clic, elige qué ventana o pantalla compartir con el técnico.
-                  Luego quédate en esta pestaña — aquí verás el puntero del técnico.
+                  {hasDisplayMedia
+                    ? 'Elige qué pantalla o ventana compartir. Quédate en esta pestaña para ver el puntero del técnico.'
+                    : 'Tu navegador no soporta compartir pantalla. Usaremos la cámara para que el técnico pueda indicarte qué hacer.'}
                 </p>
               </div>
-              <div
-                className="text-xs px-3 py-2 rounded-lg w-full text-left space-y-1"
-                style={{ backgroundColor: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
-              >
-                <p>Solo lectura — el técnico no puede controlar tu dispositivo</p>
-                <p>
-                  En el selector elige{' '}
-                  <strong style={{ color: 'var(--text-primary)' }}>Pantalla completa</strong>
-                  {' '}o{' '}
-                  <strong style={{ color: 'var(--text-primary)' }}>Ventana</strong>
-                  {' '}— no &quot;Pestaña&quot;
-                </p>
-                <p style={{ color: 'var(--accent)' }}>
-                  Importante: mantente en esta pestaña para ver el puntero
-                </p>
-              </div>
+
+              {hasDisplayMedia && (
+                <div
+                  className="text-xs px-3 py-2 rounded-lg w-full text-left space-y-1"
+                  style={{ backgroundColor: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+                >
+                  <p>Solo lectura — el técnico no puede controlar tu dispositivo</p>
+                  <p>
+                    Elige{' '}
+                    <strong style={{ color: 'var(--text-primary)' }}>Pantalla completa</strong>
+                    {' '}o{' '}
+                    <strong style={{ color: 'var(--text-primary)' }}>Ventana</strong>
+                    {' '}— no &quot;Pestaña&quot;
+                  </p>
+                  <p style={{ color: 'var(--accent)' }}>
+                    Mantente en esta pestaña para ver el puntero
+                  </p>
+                </div>
+              )}
+
               <button
-                onClick={startSharing}
+                onClick={() => startSharing(false)}
                 className="w-full py-3 rounded-lg font-medium text-sm"
                 style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
               >
-                Comenzar a compartir
+                {hasDisplayMedia ? 'Comenzar a compartir' : 'Activar cámara'}
               </button>
+
+              {/* On desktop, also offer camera as alternative */}
+              {hasDisplayMedia && (
+                <button
+                  onClick={() => startSharing(true)}
+                  className="w-full py-2 rounded-lg text-sm"
+                  style={{
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-muted)',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Usar cámara en su lugar
+                </button>
+              )}
             </div>
           )}
 
@@ -319,9 +370,14 @@ export default function SessionPage() {
               <h2 className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>
                 Error
               </h2>
-              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                {errorMsg}
-              </p>
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{errorMsg}</p>
+              <button
+                onClick={() => setState('ready')}
+                className="text-sm mt-1"
+                style={{ color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                Intentar de nuevo
+              </button>
             </div>
           )}
         </div>

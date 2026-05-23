@@ -29,6 +29,7 @@ export default function DashboardPage() {
   const [error, setError] = useState('')
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null)
+  const [remoteVideoSize, setRemoteVideoSize] = useState<{ w: number; h: number } | null>(null)
 
   const socketRef = useRef<Socket | null>(null)
   const peerRef = useRef<RTCPeerConnection | null>(null)
@@ -173,14 +174,60 @@ export default function DashboardPage() {
     }
   }
 
+  // Convert content-relative (0-1) coords back to container-pixel position for
+  // the host's local dot, accounting for objectFit:contain letterboxing.
+  function getLocalDotStyle(x: number, y: number): React.CSSProperties {
+    const video = videoRef.current
+    if (!remoteVideoSize || !video) return { left: `${x * 100}%`, top: `${y * 100}%` }
+    const rect = video.getBoundingClientRect()
+    const { w: vw, h: vh } = remoteVideoSize
+    let displayW: number, displayH: number, displayX: number, displayY: number
+    if (vw / vh > rect.width / rect.height) {
+      displayW = rect.width;  displayH = rect.width * vh / vw
+      displayX = 0;           displayY = (rect.height - displayH) / 2
+    } else {
+      displayH = rect.height; displayW = rect.height * vw / vh
+      displayY = 0;           displayX = (rect.width - displayW) / 2
+    }
+    return { left: `${displayX + x * displayW}px`, top: `${displayY + y * displayH}px` }
+  }
+
   function sendCursor(e: React.MouseEvent<HTMLVideoElement>) {
     const now = Date.now()
     if (now - lastCursorSend.current < 33) return
     lastCursorSend.current = now
     if (!session || !socketRef.current) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = (e.clientX - rect.left) / rect.width
-    const y = (e.clientY - rect.top) / rect.height
+
+    const video = e.currentTarget
+    const rect = video.getBoundingClientRect()
+
+    // Compute content-relative coords accounting for objectFit:contain letterboxing
+    // so the dot on the client maps to the exact same spot in the video stream.
+    let x: number, y: number
+
+    if (video.videoWidth && video.videoHeight) {
+      const va = video.videoWidth / video.videoHeight
+      const ea = rect.width / rect.height
+      let cW: number, cH: number, cX: number, cY: number
+      if (va > ea) {
+        // wider video → black bars top/bottom
+        cW = rect.width; cH = rect.width / va
+        cX = 0;          cY = (rect.height - cH) / 2
+      } else {
+        // taller video → black bars left/right
+        cH = rect.height; cW = rect.height * va
+        cY = 0;           cX = (rect.width - cW) / 2
+      }
+      x = (e.clientX - rect.left - cX) / cW
+      y = (e.clientY - rect.top  - cY) / cH
+    } else {
+      x = (e.clientX - rect.left) / rect.width
+      y = (e.clientY - rect.top)  / rect.height
+    }
+
+    // Ignore clicks in the letterbox area
+    if (x < 0 || x > 1 || y < 0 || y > 1) return
+
     setCursorPos({ x, y })
     socketRef.current.emit('cursor-move', { token: session.token, x, y })
   }
@@ -368,6 +415,10 @@ export default function DashboardPage() {
                       playsInline
                       muted
                       title="Mantén click presionado para señalar"
+                      onLoadedMetadata={(e) => {
+                        const v = e.currentTarget
+                        setRemoteVideoSize({ w: v.videoWidth, h: v.videoHeight })
+                      }}
                       style={{
                         width: '100%',
                         height: '100%',
@@ -384,8 +435,7 @@ export default function DashboardPage() {
                       <div
                         style={{
                           position: 'absolute',
-                          left: `${cursorPos.x * 100}%`,
-                          top: `${cursorPos.y * 100}%`,
+                          ...getLocalDotStyle(cursorPos.x, cursorPos.y),
                           width: 22,
                           height: 22,
                           borderRadius: '50%',
