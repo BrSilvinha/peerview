@@ -32,10 +32,12 @@ export default function DashboardPage() {
 
   const socketRef = useRef<Socket | null>(null)
   const peerRef = useRef<RTCPeerConnection | null>(null)
+  const dcRef = useRef<RTCDataChannel | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([])
   const lastCursorSend = useRef(0)
   const isMouseDown = useRef(false)
+  const sessionTokenRef = useRef<string | null>(null)
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('pv_token') : null
 
@@ -51,26 +53,27 @@ export default function DashboardPage() {
     }
   }, [remoteStream])
 
-  // Global mouseup so releasing the button outside the video still hides the dot.
+  // Global mouseup so releasing outside the video still hides the dot.
   useEffect(() => {
     function onGlobalMouseUp() {
       if (!isMouseDown.current) return
       isMouseDown.current = false
       setCursorPos(null)
-      const s = socketRef.current
-      const sess = session
-      if (s && sess) s.emit('cursor-hide', { token: sess.token })
+      sendCursorHide()
     }
     window.addEventListener('mouseup', onGlobalMouseUp)
     return () => window.removeEventListener('mouseup', onGlobalMouseUp)
-  }, [session])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const endSession = useCallback(() => {
     socketRef.current?.emit('session-end', { token: session?.token })
     socketRef.current?.disconnect()
+    dcRef.current?.close()
     peerRef.current?.close()
     socketRef.current = null
+    dcRef.current = null
     peerRef.current = null
+    sessionTokenRef.current = null
     pendingCandidates.current = []
     setSession(null)
     setClientStatus('waiting')
@@ -100,6 +103,12 @@ export default function DashboardPage() {
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
       })
       peerRef.current = pc
+
+      // Data channel for cursor events — travels P2P, same path as video.
+      // Created by the offerer (host) before generating the offer.
+      const dc = pc.createDataChannel('cursor')
+      dc.onopen = () => { dcRef.current = dc }
+      dc.onclose = () => { dcRef.current = null }
 
       pc.ontrack = (event) => {
         if (event.streams[0]) {
@@ -165,6 +174,7 @@ export default function DashboardPage() {
 
       const data = await res.json()
       setSession({ ...data, status: 'waiting' })
+      sessionTokenRef.current = data.token
       setupSocket(data.token)
     } catch {
       setError('No se pudo crear la sesion')
@@ -173,16 +183,32 @@ export default function DashboardPage() {
     }
   }
 
+  // Send via DataChannel (P2P) if open, otherwise fall back to Socket.IO relay.
+  function sendCursorMove(x: number, y: number) {
+    if (dcRef.current?.readyState === 'open') {
+      dcRef.current.send(JSON.stringify({ type: 'cursor-move', x, y }))
+    } else if (socketRef.current && sessionTokenRef.current) {
+      socketRef.current.emit('cursor-move', { token: sessionTokenRef.current, x, y })
+    }
+  }
+
+  function sendCursorHide() {
+    if (dcRef.current?.readyState === 'open') {
+      dcRef.current.send(JSON.stringify({ type: 'cursor-hide' }))
+    } else if (socketRef.current && sessionTokenRef.current) {
+      socketRef.current.emit('cursor-hide', { token: sessionTokenRef.current })
+    }
+  }
+
   function sendCursor(e: React.MouseEvent<HTMLVideoElement>) {
     const now = Date.now()
     if (now - lastCursorSend.current < 33) return
     lastCursorSend.current = now
-    if (!session || !socketRef.current) return
     const rect = e.currentTarget.getBoundingClientRect()
     const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
     const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
     setCursorPos({ x, y })
-    socketRef.current.emit('cursor-move', { token: session.token, x, y })
+    sendCursorMove(x, y)
   }
 
   function handleMouseDown(e: React.MouseEvent<HTMLVideoElement>) {
@@ -198,16 +224,14 @@ export default function DashboardPage() {
   function handleMouseUp() {
     isMouseDown.current = false
     setCursorPos(null)
-    if (!session || !socketRef.current) return
-    socketRef.current.emit('cursor-hide', { token: session.token })
+    sendCursorHide()
   }
 
   function handleMouseLeave() {
     if (!isMouseDown.current) return
     isMouseDown.current = false
     setCursorPos(null)
-    if (!session || !socketRef.current) return
-    socketRef.current.emit('cursor-hide', { token: session.token })
+    sendCursorHide()
   }
 
   function copyLink() {

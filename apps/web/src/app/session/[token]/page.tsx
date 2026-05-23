@@ -88,6 +88,19 @@ export default function SessionPage() {
 
     stream.getTracks().forEach(track => pc.addTrack(track, stream))
 
+    // Receive cursor events via DataChannel (P2P, same path as video).
+    // This is the primary path — socket.on('cursor-move') below is the fallback.
+    pc.ondatachannel = (event) => {
+      const dc = event.channel
+      dc.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data)
+          if (msg.type === 'cursor-move') setCursorPos({ x: msg.x, y: msg.y })
+          else if (msg.type === 'cursor-hide') setCursorPos(null)
+        } catch { /* ignore */ }
+      }
+    }
+
     const pendingIce: RTCIceCandidateInit[] = []
 
     pc.onicecandidate = (event) => {
