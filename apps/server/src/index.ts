@@ -63,9 +63,21 @@ const httpServer = http.createServer(app);
 
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: config.frontendUrl,
+    // Allow the frontend and Chrome/Firefox extensions (which connect from
+    // chrome-extension:// origins that don't match the frontend URL).
+    origin: (origin, callback) => {
+      if (
+        !origin ||
+        origin === config.frontendUrl ||
+        /^chrome-extension:\/\//.test(origin) ||
+        /^moz-extension:\/\//.test(origin)
+      ) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origin ${origin} not allowed`));
+      }
+    },
     methods: ['GET', 'POST'],
-    credentials: true,
   },
   transports: ['websocket', 'polling'],
 });

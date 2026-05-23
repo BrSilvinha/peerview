@@ -54,6 +54,10 @@ export default function SessionPage() {
     socketRef.current = socket
     socket.emit('join-client', { token })
 
+    socket.on('reconnect', () => {
+      socket.emit('join-client', { token })
+    })
+
     const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
     peerRef.current = pc
 

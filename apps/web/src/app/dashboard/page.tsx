@@ -52,6 +52,20 @@ export default function DashboardPage() {
     }
   }, [remoteStream])
 
+  // Global mouseup so releasing the button outside the video still hides the dot.
+  useEffect(() => {
+    function onGlobalMouseUp() {
+      if (!isMouseDown.current) return
+      isMouseDown.current = false
+      setCursorPos(null)
+      const s = socketRef.current
+      const sess = session
+      if (s && sess) s.emit('cursor-hide', { token: sess.token })
+    }
+    window.addEventListener('mouseup', onGlobalMouseUp)
+    return () => window.removeEventListener('mouseup', onGlobalMouseUp)
+  }, [session])
+
   const endSession = useCallback(() => {
     socketRef.current?.emit('session-end', { token: session?.token })
     socketRef.current?.disconnect()
@@ -73,6 +87,11 @@ export default function DashboardPage() {
     socketRef.current = socket
 
     socket.emit('join-host', { token: sessionToken })
+
+    // Re-join host room after any reconnection so cursor events keep working.
+    socket.on('reconnect', () => {
+      socket.emit('join-host', { token: sessionToken })
+    })
 
     socket.on('client-connected', async () => {
       setClientStatus('connected')

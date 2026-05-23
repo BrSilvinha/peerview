@@ -15,7 +15,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'GET_STATUS') {
-    sendResponse({ connected: !!socket, token: currentToken })
+    const wsOpen = !!socket && !!socket._ws && socket._ws.readyState === 1
+    sendResponse({ connected: wsOpen, token: currentToken })
   }
 
   return true

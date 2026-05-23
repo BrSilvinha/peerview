@@ -6,12 +6,10 @@
   const statusTxt = document.getElementById('status-text')
   const errorMsg  = document.getElementById('error-msg')
 
-  // Extract token from a full URL or bare token
   function parseToken(raw) {
     const trimmed = raw.trim()
     const match = trimmed.match(/session\/([a-f0-9-]{36})/i)
     if (match) return match[1]
-    // Accept bare UUID
     if (/^[a-f0-9-]{36}$/i.test(trimmed)) return trimmed
     return null
   }
@@ -41,7 +39,24 @@
     setError('')
   }
 
-  // Restore state on open
+  // Poll GET_STATUS up to maxTries with intervalMs between tries.
+  function waitForConnection(token, maxTries, intervalMs, onSuccess, onFail) {
+    let tries = 0
+    function attempt() {
+      chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (res) => {
+        if (res && res.connected) {
+          onSuccess()
+        } else if (++tries < maxTries) {
+          setTimeout(attempt, intervalMs)
+        } else {
+          onFail()
+        }
+      })
+    }
+    attempt()
+  }
+
+  // Restore state on popup open
   chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (res) => {
     if (res && res.connected && res.token) {
       input.value = res.token
@@ -60,14 +75,22 @@
     setError('')
     btnConn.disabled = true
 
-    chrome.runtime.sendMessage({ type: 'CONNECT', token }, (res) => {
-      btnConn.disabled = false
-      if (res && res.ok) {
-        setConnected(token)
-      } else {
-        setStatus('error', 'Error al conectar')
-        setError('No se pudo conectar al servidor')
-      }
+    chrome.runtime.sendMessage({ type: 'CONNECT', token }, () => {
+      // Poll until WebSocket is actually open (Render can take ~10s to wake up).
+      waitForConnection(
+        token,
+        12,   // up to 12 tries
+        1000, // every 1 second → max 12s wait
+        () => {
+          btnConn.disabled = false
+          setConnected(token)
+        },
+        () => {
+          btnConn.disabled = false
+          setStatus('error', 'Sin conexion')
+          setError('No se pudo conectar. El servidor puede estar iniciando, intenta de nuevo.')
+        }
+      )
     })
   })
 
@@ -77,7 +100,6 @@
     })
   })
 
-  // Allow pressing Enter in the input
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') btnConn.click()
   })
