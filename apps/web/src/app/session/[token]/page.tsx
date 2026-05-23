@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { io, Socket } from 'socket.io-client'
-import { Monitor, Loader2, ShieldAlert } from 'lucide-react'
+import { Monitor, Loader2, ShieldAlert, StopCircle } from 'lucide-react'
 
 type PageState = 'loading' | 'invalid' | 'ready' | 'sharing' | 'stopped' | 'error'
 
@@ -12,21 +12,20 @@ export default function SessionPage() {
   const [state, setState] = useState<PageState>('loading')
   const [errorMsg, setErrorMsg] = useState('')
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null)
+  const [showControls, setShowControls] = useState(true)
 
   const socketRef = useRef<Socket | null>(null)
   const peerRef = useRef<RTCPeerConnection | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     async function validateToken() {
       try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/api/sessions/${token}`)
         const data = await res.json()
-        if (!data.valid) {
-          setState('invalid')
-        } else {
-          setState('ready')
-        }
+        setState(data.valid ? 'ready' : 'invalid')
       } catch {
         setState('invalid')
       }
@@ -34,10 +33,27 @@ export default function SessionPage() {
     validateToken()
   }, [token])
 
+  // Attach local stream to video element when sharing starts
+  useEffect(() => {
+    if (state === 'sharing' && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current
+    }
+  }, [state])
+
+  // Auto-hide controls bar after 3s of no mouse movement
+  function resetControlsTimer() {
+    setShowControls(true)
+    if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current)
+    controlsTimerRef.current = setTimeout(() => setShowControls(false), 3000)
+  }
+
   async function startSharing() {
     let stream: MediaStream
     try {
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false })
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 30 },
+        audio: false,
+      })
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'NotAllowedError') {
         setState('ready')
@@ -102,6 +118,7 @@ export default function SessionPage() {
     stream.getVideoTracks()[0].addEventListener('ended', () => stopSharing())
 
     setState('sharing')
+    resetControlsTimer()
   }
 
   function stopSharing() {
@@ -112,31 +129,96 @@ export default function SessionPage() {
     streamRef.current = null
     socketRef.current = null
     peerRef.current = null
+    setCursorPos(null)
     setState('stopped')
   }
 
   if (state === 'sharing') {
     return (
-      <div style={{ position: 'fixed', inset: 0, background: 'transparent', pointerEvents: 'none' }}>
+      <div
+        style={{ position: 'fixed', inset: 0, background: '#000' }}
+        onMouseMove={resetControlsTimer}
+      >
+        {/* Mirror of the client's own captured screen */}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            display: 'block',
+          }}
+        />
+
+        {/* Red dot from host */}
         {cursorPos && (
           <div
             style={{
-              position: 'fixed',
-              left: `${cursorPos.x * 100}vw`,
-              top: `${cursorPos.y * 100}vh`,
-              width: 26,
-              height: 26,
+              position: 'absolute',
+              left: `${cursorPos.x * 100}%`,
+              top: `${cursorPos.y * 100}%`,
+              width: 28,
+              height: 28,
               borderRadius: '50%',
               background: 'rgba(239,68,68,0.92)',
               border: '3px solid #fff',
-              boxShadow: '0 0 0 4px rgba(239,68,68,0.3)',
+              boxShadow: '0 0 0 5px rgba(239,68,68,0.35), 0 2px 12px rgba(0,0,0,0.5)',
               transform: 'translate(-50%, -50%)',
               transition: 'left 40ms linear, top 40ms linear',
-              zIndex: 2147483647,
+              zIndex: 10,
               pointerEvents: 'none',
             }}
           />
         )}
+
+        {/* Controls bar — auto-hides after 3s */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 16px',
+            background: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(6px)',
+            zIndex: 20,
+            transition: 'opacity 0.3s',
+            opacity: showControls ? 1 : 0,
+            pointerEvents: showControls ? 'auto' : 'none',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#22c55e' }} />
+            <span style={{ color: '#e2e8f0', fontSize: 13 }}>Compartiendo pantalla</span>
+          </div>
+          <button
+            onClick={stopSharing}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 12px',
+              borderRadius: 6,
+              border: 'none',
+              background: 'rgba(239,68,68,0.85)',
+              color: '#fff',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            <StopCircle size={14} />
+            Dejar de compartir
+          </button>
+        </div>
       </div>
     )
   }
@@ -189,8 +271,8 @@ export default function SessionPage() {
                   Compartir tu pantalla
                 </h2>
                 <p className="text-sm mt-1.5" style={{ color: 'var(--text-muted)' }}>
-                  Al hacer clic en el botón, se te pedirá que elijas qué pantalla o ventana compartir.
-                  Solo el técnico podrá ver tu pantalla.
+                  Al hacer clic, elige qué ventana o pantalla compartir con el técnico.
+                  Luego quédate en esta pestaña — aquí verás el puntero del técnico.
                 </p>
               </div>
               <div
@@ -198,7 +280,16 @@ export default function SessionPage() {
                 style={{ backgroundColor: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
               >
                 <p>Solo lectura — el técnico no puede controlar tu dispositivo</p>
-                <p>En el selector, elige <strong style={{ color: 'var(--text-primary)' }}>Pantalla completa</strong> o <strong style={{ color: 'var(--text-primary)' }}>Ventana</strong>, no &quot;Pestaña&quot;</p>
+                <p>
+                  En el selector elige{' '}
+                  <strong style={{ color: 'var(--text-primary)' }}>Pantalla completa</strong>
+                  {' '}o{' '}
+                  <strong style={{ color: 'var(--text-primary)' }}>Ventana</strong>
+                  {' '}— no &quot;Pestaña&quot;
+                </p>
+                <p style={{ color: 'var(--accent)' }}>
+                  Importante: mantente en esta pestaña para ver el puntero
+                </p>
               </div>
               <button
                 onClick={startSharing}
@@ -217,7 +308,7 @@ export default function SessionPage() {
                 Sesión finalizada
               </h2>
               <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                Sesión finalizada. Puedes cerrar esta pestaña.
+                Puedes cerrar esta pestaña.
               </p>
             </div>
           )}

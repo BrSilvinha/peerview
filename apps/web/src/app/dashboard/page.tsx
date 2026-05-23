@@ -25,7 +25,6 @@ export default function DashboardPage() {
   const [session, setSession] = useState<Session | null>(null)
   const [creating, setCreating] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [copiedToken, setCopiedToken] = useState(false)
   const [clientStatus, setClientStatus] = useState<'waiting' | 'connected'>('waiting')
   const [error, setError] = useState('')
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
@@ -218,13 +217,6 @@ export default function DashboardPage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  function copyToken() {
-    if (!session) return
-    navigator.clipboard.writeText(session.token)
-    setCopiedToken(true)
-    setTimeout(() => setCopiedToken(false), 2000)
-  }
-
   function logout() {
     localStorage.removeItem('pv_token')
     router.push('/login')
@@ -331,36 +323,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div>
-                <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
-                  Token (para la extension del navegador)
-                </p>
-                <div
-                  className="flex items-center gap-2 px-3 py-2.5 rounded-lg"
-                  style={{ backgroundColor: 'var(--bg)', border: '1px solid var(--border)' }}
-                >
-                  <span
-                    className="flex-1 text-sm font-mono"
-                    style={{ color: 'var(--text-primary)', letterSpacing: '0.03em' }}
-                  >
-                    {session.token}
-                  </span>
-                  <button
-                    onClick={copyToken}
-                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors"
-                    style={{
-                      backgroundColor: copiedToken ? '#14532D' : 'var(--surface)',
-                      color: copiedToken ? '#86EFAC' : 'var(--text-muted)',
-                      border: `1px solid ${copiedToken ? '#166534' : 'var(--border)'}`,
-                    }}
-                  >
-                    {copiedToken ? <Check size={12} /> : <Copy size={12} />}
-                    {copiedToken ? 'Copiado' : 'Copiar'}
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text-muted)' }}>
+<div className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text-muted)' }}>
                 <Clock size={14} />
                 <span>
                   Expira:{' '}
