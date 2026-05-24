@@ -15,18 +15,36 @@ export default function SessionPage() {
   const [showControls, setShowControls] = useState(true)
   const [isCamera, setIsCamera] = useState(false)
   const [signalCount, setSignalCount] = useState(0)
+  const [hasPip, setHasPip] = useState(false)
+  const [pipOpen, setPipOpen] = useState(false)
 
   const socketRef = useRef<Socket | null>(null)
   const peerRef = useRef<RTCPeerConnection | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pipWindowRef = useRef<Window | null>(null)
+  const pipDotRef = useRef<HTMLDivElement | null>(null)
 
   // iOS Safari has no getDisplayMedia — detect at runtime (not during SSR)
   const [hasDisplayMedia, setHasDisplayMedia] = useState(true)
   useEffect(() => {
     setHasDisplayMedia(typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia)
+    setHasPip('documentPictureInPicture' in window)
   }, [])
+
+  // Keep the floating PiP dot in sync with cursorPos
+  useEffect(() => {
+    const dot = pipDotRef.current
+    if (!dot) return
+    if (cursorPos) {
+      dot.style.left = `${cursorPos.x * 100}vw`
+      dot.style.top = `${cursorPos.y * 100}vh`
+      dot.style.display = 'block'
+    } else {
+      dot.style.display = 'none'
+    }
+  }, [cursorPos])
 
   useEffect(() => {
     async function validateToken() {
@@ -141,6 +159,11 @@ export default function SessionPage() {
   }
 
   function stopSharing() {
+    if (pipWindowRef.current) {
+      pipWindowRef.current.close()
+      pipWindowRef.current = null
+      pipDotRef.current = null
+    }
     streamRef.current?.getTracks().forEach(t => t.stop())
     socketRef.current?.emit('session-end', { token })
     socketRef.current?.disconnect()
@@ -150,6 +173,51 @@ export default function SessionPage() {
     peerRef.current = null
     setCursorPos(null)
     setState('stopped')
+  }
+
+  async function openFloatingDot() {
+    if (!('documentPictureInPicture' in window)) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pip = (window as any).documentPictureInPicture
+
+    if (pipWindowRef.current) {
+      pipWindowRef.current.close()
+      pipWindowRef.current = null
+      pipDotRef.current = null
+      setPipOpen(false)
+      return
+    }
+
+    try {
+      const pipWin: Window = await pip.requestWindow({ width: 400, height: 225 })
+      pipWindowRef.current = pipWin
+      setPipOpen(true)
+
+      const style = pipWin.document.createElement('style')
+      style.textContent = '* { margin:0; padding:0; box-sizing:border-box; } body { background:#000; overflow:hidden; width:100vw; height:100vh; position:relative; }'
+      pipWin.document.head.appendChild(style)
+
+      const video = pipWin.document.createElement('video')
+      video.autoplay = true
+      video.playsInline = true
+      video.muted = true
+      video.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;'
+      if (streamRef.current) video.srcObject = streamRef.current
+      pipWin.document.body.appendChild(video)
+
+      const dot = pipWin.document.createElement('div') as HTMLDivElement
+      dot.style.cssText = 'position:fixed;width:18px;height:18px;border-radius:50%;background:rgba(239,68,68,0.95);border:2px solid #fff;box-shadow:0 0 0 4px rgba(239,68,68,0.4);transform:translate(-50%,-50%) translateZ(0);display:none;pointer-events:none;z-index:2147483647;transition:left 40ms linear,top 40ms linear;will-change:left,top;'
+      pipWin.document.body.appendChild(dot)
+      pipDotRef.current = dot
+
+      pipWin.addEventListener('pagehide', () => {
+        pipWindowRef.current = null
+        pipDotRef.current = null
+        setPipOpen(false)
+      })
+    } catch {
+      // User cancelled or browser rejected
+    }
   }
 
   if (state === 'sharing') {
@@ -233,18 +301,34 @@ export default function SessionPage() {
               {signalCount > 0 ? `● Señales: ${signalCount}` : '○ Sin señal aún'}
             </span>
           </div>
-          <button
-            onClick={stopSharing}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 14px', borderRadius: 6, border: 'none',
-              background: 'rgba(239,68,68,0.85)', color: '#fff',
-              fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            }}
-          >
-            <StopCircle size={14} />
-            Detener
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {hasPip && (
+              <button
+                onClick={openFloatingDot}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '6px 14px', borderRadius: 6,
+                  border: '1px solid rgba(255,255,255,0.25)',
+                  background: pipOpen ? 'rgba(34,197,94,0.25)' : 'rgba(255,255,255,0.12)',
+                  color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                }}
+              >
+                {pipOpen ? '✕ Cerrar flotante' : '⧉ Puntero flotante'}
+              </button>
+            )}
+            <button
+              onClick={stopSharing}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 14px', borderRadius: 6, border: 'none',
+                background: 'rgba(239,68,68,0.85)', color: '#fff',
+                fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              <StopCircle size={14} />
+              Detener
+            </button>
+          </div>
         </div>
       </div>
     )
